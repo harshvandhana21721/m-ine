@@ -52,4 +52,6 @@ Thumbs.db
 
 # Local database (optional - remove if you want to track it)
 artifacts/api-server/data/local-db.json
-artifacts/api-server/data/*.broken-*
+artifacts/api-server/data/*.broken-*.env
+artifacts/api-server/data/local-db.json
+artifacts/api-server/data/
