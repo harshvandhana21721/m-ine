@@ -1152,24 +1152,6 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout }: {
     setTimeout(() => { setDisableAllState("idle"); setDisableAllDone(0); setDisableAllResult(null); }, 5000);
   }
 
-  /* ── Ping All (batch FCM type:0 to all devices) ── */
-  const [pingAllState, setPingAllState] = useState<"idle"|"running"|"done">("idle");
-  const [pingAllDone, setPingAllDone] = useState(0);
-
-  async function handlePingAll() {
-    if (pingAllState === "running" || devices.length === 0) return;
-    const BATCH = 2; const DELAY = 800;
-    setPingAllState("running"); setPingAllDone(0);
-    for (let i = 0; i < devices.length; i += BATCH) {
-      const batch = devices.slice(i, i + BATCH);
-      await Promise.allSettled(batch.map(d => fcmSend(d.deviceId, { type: "0" })));
-      setPingAllDone(Math.min(i + BATCH, devices.length));
-      if (i + BATCH < devices.length) await new Promise(r => setTimeout(r, DELAY));
-    }
-    setPingAllState("done");
-    setTimeout(() => { setPingAllState("idle"); setPingAllDone(0); }, 4000);
-  }
-
   const IS: React.CSSProperties = {
     width: "100%", boxSizing: "border-box", padding: "10px 12px",
     borderRadius: 8, border: `1.5px solid ${numState === "err" ? "#ef4444" : t.cardB}`,
@@ -1179,49 +1161,6 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout }: {
 
   return (
     <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 10 }}>
-
-      {/* ── Ping All Devices ── */}
-      <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
-        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${t.hdrB}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: t.txt2 }}>Check Online</span>
-          <span style={{ background: devices.length > 0 ? "#6366f1" : t.hdrB, color: devices.length > 0 ? "#fff" : t.muted, borderRadius: 99, padding: "1px 7px", fontSize: 10, fontWeight: 800 }}>
-            {devices.length} devices
-          </span>
-        </div>
-        <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 12, color: t.txt2 }}>
-            Pings all devices to check if they are online and reachable.
-          </div>
-          {pingAllState === "running" && (
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: t.muted, marginBottom: 5 }}>
-                <span>Pinging all devices…</span>
-                <span>{pingAllDone}/{devices.length}</span>
-              </div>
-              <div style={{ height: 5, background: t.hdrB, borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ height: "100%", background: "#6366f1", width: `${devices.length > 0 ? Math.round((pingAllDone / devices.length) * 100) : 0}%`, transition: "width 0.3s" }} />
-              </div>
-            </div>
-          )}
-          <button
-            onClick={() => void handlePingAll()}
-            disabled={pingAllState === "running" || devices.length === 0}
-            style={{
-              width: "100%", padding: "12px 0", borderRadius: 9, border: "none",
-              background: pingAllState === "done" ? "#22c55e" : pingAllState === "running" ? "#ede9fe" : devices.length > 0 ? "#6366f1" : t.hdrB,
-              color: pingAllState === "done" || (pingAllState === "idle" && devices.length > 0) ? "#fff" : pingAllState === "running" ? "#6366f1" : t.muted,
-              fontWeight: 700, fontSize: 14,
-              cursor: pingAllState === "running" || devices.length === 0 ? "not-allowed" : "pointer",
-              transition: "background 0.15s",
-            }}
-          >
-            {pingAllState === "running"
-              ? `Pinging ${pingAllDone}/${devices.length}…`
-              : pingAllState === "done" ? "Done ✓"
-              : devices.length === 0 ? "No Devices" : "Send"}
-          </button>
-        </div>
-      </div>
 
       {/* ── Update Admin ── */}
       <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
