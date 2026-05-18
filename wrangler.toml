@@ -1,0 +1,7 @@
+name = "mrrobot"
+compatibility_date = "2026-05-18"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mrrobot-db"
+database_id = "4c85f760-b8e7-447d-b616-d025f90c0b93"
